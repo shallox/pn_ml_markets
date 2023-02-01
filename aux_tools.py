@@ -6,14 +6,6 @@ import os
 import zipfile
 import platform
 
-### Logging config ###
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(threadName)s %(name)s %(message)s",
-    filename=r'logs\runtime.log'
-)
-logger = logging.getLogger()
-
 
 def logging_config(message, level):
     """
@@ -30,6 +22,9 @@ def logging_config(message, level):
     :return: none
     """
 
+    config_cache = config_parser(['settings', 'dev_mode'],
+                                 os.path.join(os.path.realpath(__file__).rsplit("\\", 1)[0].rsplit("/", 1)[0],
+                                              'settings.yaml'))
     print_out = config_cache['console_out']['data']
     print_out_level = config_cache['console_print_out']['data']
     log_level = config_cache['log_level']['data']
@@ -197,9 +192,6 @@ def zippy(mode, **kwargs):
         logging_config(f'Finished extraction of {file_to_un_zip}', 0)
 
 
-config_cache = config_parser(['settings', 'dev_mode'], 'settings.yaml')
-
-
 def check_os_type():
     """
     Checkes OS type and returns list with 2 objects, type of os at position 0 and file path seperator at position 1
@@ -213,3 +205,12 @@ def check_os_type():
     else:
         split_check = '/'
     return [os_type_check, split_check]
+
+
+### Logging config ###
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(threadName)s %(name)s %(message)s",
+    filename=os.path.join(str(os.path.realpath(__file__)).rsplit(check_os_type()[1], 1)[0],
+                          f"logs{check_os_type()[1]}runtime.log"))
+logger = logging.getLogger()

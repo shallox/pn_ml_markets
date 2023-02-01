@@ -6,7 +6,7 @@ import argparse
 import subprocess
 
 
-def out_packages():
+def out_packages(real_fp):
     from aux_tools import config_parser, logging_config, check_os_type
     import requests
     import pandas as pd
@@ -19,7 +19,7 @@ def out_packages():
     from tqdm import tqdm
 
     eng = create_engine(
-        config_parser(['settings', 'database', 'connection', 'data'], 'settings.yaml')
+        config_parser(['settings', 'database', 'connection', 'data'], os.path.join(real_fp, 'settings.yaml'))
     )
     url = "https://api.binance.com/api/v3/klines"
 
@@ -186,9 +186,10 @@ def out_packages():
 
     if cron_data is not None:
         collect_cron = cron_data.rsplit(',', 2)
-        print(collect_cron[0])
+        open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(
+            f'@{str(datetime.now()).split(".")[0]} | job started for {collect_cron[0]}\n')
         get_data(collect_cron[0].split(','), collect_cron[1], collect_cron[2])
-        logging_config(f'Collecting data for {collect_cron[0]}...', 1)
+        open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(f'@{str(datetime.now()).split(".")[0]} | job finished for {collect_cron[0]}\n')
     else:
         while True:
             options_avalable = ['collect', 'train', 'predict']
@@ -215,14 +216,14 @@ def out_packages():
                     if collection == 'y':
                         if check_os_type()[0] == 'Windows':
                             task_timer = input('Task frequancy (EG: HOURLY, DAILY): ')
-                            create_scheduled_task(f"python {os.path.abspath(__file__)}"
-                                                  f" --collect-cron {markets}, "
-                                                  f"{tik_interval}, "
-                                                  f"{hours_val}",
+                            create_scheduled_task(f"{sys.executable} {os.path.abspath(__file__)}"
+                                                  f' --collect-cron "{markets}, '
+                                                  f'{tik_interval}, '
+                                                  f'{hours_val}"',
                                                   task_timer)
                         else:
                             cron_timer = input('Cron timer (eg: every hour 0 * * * *): ')
-                            create_cron_job(f"python {os.path.abspath(__file__)}"
+                            create_cron_job(f"{sys.executable} {os.path.abspath(__file__)}"
                                             f" --collect-cron {markets}, "
                                             f"{tik_interval}, "
                                             f"{hours_val}",
@@ -288,7 +289,7 @@ def handle_errors(error_msg):
                          f' would you like to run requirements.txt? y\\n?')
     if install_deps == 'y':
         os.system(f'pip install -r requirements.txt')
-        out_packages()
+        out_packages(real_fp)
     else:
         print(f'Ok, well gl out there :).')
         sys.exit(0)
@@ -306,9 +307,8 @@ def create_scheduled_task(command, schedule):
         start_time = str(datetime.now() + timedelta(hours=1)).split(' ')[1].split('.')[0]
     else:
         start_time = str(datetime.now() + timedelta(days=1)).split(' ')[1].split('.')[0]
-    run_command = ["schtasks", "/create", "/tn", task_name.replace(':', '-'), "/tr", f'"{command}"', "/sc", schedule,
+    run_command = ["schtasks", "/create", "/tn", task_name.replace(':', '-'), "/tr", f"{command}", "/sc", schedule,
                    "/st", start_time]
-    print(run_command)
     subprocess.run(run_command, shell=True, check=True)
 
 
@@ -317,8 +317,11 @@ if __name__ == '__main__':
     argument_pass.add_argument("--collect-cron", help="Collects data on a time window based on info passsed.")
     argument_list = argument_pass.parse_args()
     cron_data = argument_list.collect_cron
+    real_fp = os.path.realpath(__file__).rsplit("\\", 1)[0].rsplit('/', 1)[0]
+    open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(
+        f'@{str(datetime.now()).split(".")[0]} | Beginning of app. Cron data is {cron_data}\n')
     try:
-        out_packages()
+        out_packages(real_fp)
     except ModuleNotFoundError as mnfe:
         handle_errors(mnfe)
     except ImportError as ie:

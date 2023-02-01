@@ -20,4 +20,4 @@ settings:
       note: 'SQL connection string'
       type: 'text'
       default: 'sqlite:////binance_db.db'
-      data: 'sqlite:///binance_db.db'
+      data: 'sqlite:///C:\\Users\\jeshu\\PycharmProjects\\pnst\\binance_db.db'
