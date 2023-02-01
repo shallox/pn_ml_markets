@@ -1,0 +1,23 @@
+settings:
+  dev_mode:
+    log_level:
+      note: '0 = INFO, 1 = DEBUG, 2 = WARNING, 3 = ERROR, 4 = CRITICAL'
+      type: 'dropdown'
+      default: '0, 1, 2, 3, 4'
+      data: 0
+    console_out:
+      note: 'Post logs to console?'
+      type: 'dropdown'
+      default: 'False, True'
+      data: 'True'
+    console_print_out:
+      note: '0 = INFO, 1 = DEBUG, 2 = WARNING, 3 = ERROR, 4 = CRITICAL'
+      type: 'dropdown'
+      default: '0, 1, 2, 3, 4'
+      data: '0'
+  database:
+    connection:
+      note: 'SQL connection string'
+      type: 'text'
+      default: 'sqlite:////binance_db.db'
+      data: 'sqlite:///binance_db.db'
