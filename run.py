@@ -1,13 +1,13 @@
 import os
 from datetime import datetime, timedelta
 from time import sleep
-from aux_tools import config_parser, logging_config, check_os_type
 import sys
 import argparse
 import subprocess
 
 
 def out_packages():
+    from aux_tools import config_parser, logging_config, check_os_type
     import requests
     import pandas as pd
     from sqlalchemy import create_engine, Column, Float, BigInteger, select, text, inspect
