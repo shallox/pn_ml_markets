@@ -185,8 +185,10 @@ def out_packages():
               f'Amount out: {predicted_close_price - last_sample}')
 
     if cron_data is not None:
-        collect_cron = cron_data.split(',')
-        print(collect_cron)
+        collect_cron = cron_data.rsplit(',', 2)
+        print(collect_cron[0])
+        get_data(collect_cron[0].split(','), collect_cron[1], collect_cron[2])
+        logging_config(f'Collecting data for {collect_cron[0]}...', 1)
     else:
         while True:
             options_avalable = ['collect', 'train', 'predict']
@@ -293,10 +295,7 @@ def handle_errors(error_msg):
 
 
 def create_cron_job(command, schedule):
-    # Run the crontab command to edit the cron jobs
     subprocess.run(["crontab", "-e"], stdin=subprocess.PIPE)
-
-    # Append the new cron job to the cron file
     cron_job = f"{schedule} {command}"
     subprocess.run(["echo", cron_job], stdout=subprocess.PIPE)
 
@@ -307,8 +306,10 @@ def create_scheduled_task(command, schedule):
         start_time = str(datetime.now() + timedelta(hours=1)).split(' ')[1].split('.')[0]
     else:
         start_time = str(datetime.now() + timedelta(days=1)).split(' ')[1].split('.')[0]
-    subprocess.run(["schtasks", "/create", "/tn", task_name, "/tr", command, "/sc", schedule, "/st", start_time],
-                   shell=True, check=True)
+    run_command = ["schtasks", "/create", "/tn", task_name.replace(':', '-'), "/tr", f'"{command}"', "/sc", schedule,
+                   "/st", start_time]
+    print(run_command)
+    subprocess.run(run_command, shell=True, check=True)
 
 
 if __name__ == '__main__':
