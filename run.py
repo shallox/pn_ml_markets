@@ -19,7 +19,10 @@ def out_packages(real_fp):
     from tqdm import tqdm
 
     eng = create_engine(
-        config_parser(['settings', 'database', 'connection', 'data'], os.path.join(real_fp, 'settings.yaml'))
+        config_parser(['settings', 'database', 'connection', 'data'], os.path.join(real_fp, 'settings.yaml')),
+        pool_size=100,
+        max_overflow=0,
+        pool_recycle=True
     )
     url = "https://api.binance.com/api/v3/klines"
 
@@ -109,7 +112,6 @@ def out_packages(real_fp):
         :return:
         """
 
-        start_time = datetime.now()
         tik_gd = 0
         for market in tqdm(symbol_list, desc="Market data collection progress: "):
             tik_gd += 1
@@ -122,14 +124,6 @@ def out_packages(real_fp):
             data = response.json()
             data = convert_to_dataframe(data)
             add_data_to_db(data, market)
-            fst = start_time + timedelta(minutes=1)
-            if tik_gd >= 1199 and start_time < fst:
-                sleep((start_time - fst).seconds)
-                start_time = datetime.now()
-                tik_gd = 0
-            elif tik_gd >= 1199 or start_time >= fst:
-                start_time = datetime.now()
-                tik_gd = 0
 
     def train_on_dataset(target, name_m, epo, time_steps):
         """
@@ -186,10 +180,15 @@ def out_packages(real_fp):
 
     if cron_data is not None:
         collect_cron = cron_data.rsplit(',', 2)
+        if collect_cron[0] == 'all':
+            target_symbs = get_all_symbols_on_binance()
+        else:
+            target_symbs = collect_cron[0].replace(' ', '').split(',')
         open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(
             f'@{str(datetime.now()).split(".")[0]} | job started for {collect_cron[0]}\n')
-        get_data(collect_cron[0].split(','), collect_cron[1], collect_cron[2])
-        open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(f'@{str(datetime.now()).split(".")[0]} | job finished for {collect_cron[0]}\n')
+        get_data(target_symbs, collect_cron[1], collect_cron[2])
+        open(f'{os.path.join(real_fp, "logs/last_cron.txt")}', 'a').write(
+            f'@{str(datetime.now()).split(".")[0]} | job finished for {collect_cron[0]}\n')
     else:
         while True:
             options_avalable = ['collect', 'train', 'predict']
