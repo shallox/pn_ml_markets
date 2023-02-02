@@ -211,7 +211,7 @@ def out_packages(real_fp):
                     if markets == 'all':
                         get_data(base_symbol_list, tik_interval, hours_val)
                     else:
-                        get_data(markets.split(','), tik_interval, hours_val)
+                        get_data(markets.replace(' ', '').split(','), tik_interval, hours_val)
                     collection = input(f'Continue to collect output with a background task?: y/n')
                     if collection == 'y':
                         if check_os_type()[0] == 'Windows':
