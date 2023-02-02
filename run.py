@@ -115,10 +115,12 @@ def out_packages(real_fp):
         tik_gd = 0
         for market in tqdm(symbol_list, desc="Market data collection progress: "):
             tik_gd += 1
+            st = int((datetime.now() - timedelta(hours=int(hour_val))).timestamp())
+            print(datetime.fromtimestamp(st).isoformat())
             params = {
                 "interval": interval,
-                "symbol": market,
-                'startTime': int((datetime.now() - timedelta(hours=int(hour_val))).timestamp() * int(hour_val))
+                "symbol": market.replace(' ', ''),
+                'startTime': st
             }
             response = requests.get(url, params=params)
             data = response.json()
@@ -154,9 +156,9 @@ def out_packages(real_fp):
         print(target_dataset)
 
         params = {
-            "interval": "1h",
+            "interval": "1m",
             "symbol": target_dataset.replace(' ', ''),
-            'startTime': int((datetime.now() - timedelta(hours=2)).timestamp() * int(hours_val))
+            'startTime': int((datetime.now() - timedelta(hours=2)).timestamp())
         }
         response = requests.get(url, params=params)
         data = response.json()
@@ -202,6 +204,12 @@ def out_packages(real_fp):
                     break
                 if option_one == 'collect':
                     base_symbol_list = get_all_symbols_on_binance()
+                    if os.path.isfile(os.path.join(real_fp, 'binance_db.db')) is False:
+                        market_fill = input(f'It appears that this is the 1st time running, would\n'
+                                            f'you like to back-fill the database with historic data?\n'
+                                            f'y/n?: ')
+                        if market_fill == 'y':
+                            epoch_arge = input(f'')
                     print(f'Select markets to collect by separating each with a ,\n '
                           f'Input all to scan all available markets.')
                     markets = input('Markets: ')
