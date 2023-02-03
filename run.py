@@ -1,17 +1,20 @@
 import os
 from datetime import datetime, timedelta
-from time import sleep
 import sys
 import argparse
 import subprocess
+import io
+import zipfile
+import concurrent.futures
 
 
 def out_packages(real_fp):
     from aux_tools import config_parser, logging_config, check_os_type
     import requests
     import pandas as pd
-    from sqlalchemy import create_engine, Column, Float, BigInteger, select, text, inspect
+    from sqlalchemy import create_engine, Column, Float, BigInteger, select, text, inspect, Text
     from sqlalchemy.orm import sessionmaker, declarative_base
+    from sqlalchemy.exc import OperationalError
     from sklearn.preprocessing import MinMaxScaler
     from keras.preprocessing.sequence import TimeseriesGenerator
     from keras.models import Sequential, load_model
@@ -26,7 +29,7 @@ def out_packages(real_fp):
     )
     url = "https://api.binance.com/api/v3/klines"
 
-    def add_data_to_db(data, symbol):
+    def add_data_to_db(data, symbol, engine):
         """
         Commits data to databse.
 
@@ -34,7 +37,7 @@ def out_packages(real_fp):
         :param symbol: str
         :return:
         """
-        engine = eng
+
         base = declarative_base()
 
         class Data(base):
@@ -60,19 +63,19 @@ def out_packages(real_fp):
         for candle_values in data.iterrows():
             candles = candle_values[1]
             if len(candles.keys()) == 11:
-                if candles['Open time'] not in ts_breakup:
+                if candles['open_time'] not in ts_breakup:
                     session.add(Data(
-                        timestamp=candles['Open time'],
-                        open=candles['Open'],
-                        high=candles['High'],
-                        low=candles['Low'],
-                        close=candles['Close'],
-                        volume=candles['Volume'],
-                        close_time=candles['Close time'],
-                        quote_asset_volume=candles['Quote asset volume'],
-                        number_of_trades=candles['Number of trades'],
-                        taker_buy_base_asset_volume=candles['Taker buy base asset volume'],
-                        taker_buy_quote_asset_volume=candles['Taker buy quote asset volume'],
+                        timestamp=candles['open_time'],
+                        open=candles['open'],
+                        high=candles['high'],
+                        low=candles['low'],
+                        close=candles['close'],
+                        volume=candles['volume'],
+                        close_time=candles['close_time'],
+                        quote_asset_volume=candles['quote_asset_volume'],
+                        number_of_trades=candles['number_of_trades'],
+                        taker_buy_base_asset_volume=candles['taker_buy_base_asset_volume'],
+                        taker_buy_quote_asset_volume=candles['taker_buy_quote_asset_volume'],
                     ))
         session.commit()
 
@@ -83,16 +86,18 @@ def out_packages(real_fp):
         :param data:
         :return:
         """
-        df = pd.DataFrame(data, columns=["Open time", "Open", "High", "Low", "Close", "Volume", "Close time",
-                                         "Quote asset volume", "Number of trades", "Taker buy base asset volume",
-                                         "Taker buy quote asset volume", "Ignore"])
+
+        df = pd.read_csv(io.StringIO(data.decode('utf-8')),
+                         names=["open_time", "open", "high", "low", "close", "volume", "close_time",
+                                "quote_asset_volume", "number_of_trades", "taker_buy_base_asset_volume",
+                                "taker_buy_quote_asset_volume", "Ignore"])
         df.pop('Ignore')
-        df[["Open", "High", "Low", "Close", "Volume"]] = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+        df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
         if len(df) > 0:
             scaler = MinMaxScaler()
             try:
-                df[["Open", "High", "Low", "Close", "Volume"]] = scaler.fit_transform(
-                    df[["Open", "High", "Low", "Close", "Volume"]])
+                df[["open", "high", "low", "close", "volume"]] = scaler.fit_transform(
+                    df[["open", "high", "low", "close", "volume"]])
             except ValueError as ve:
                 logging_config(ve, 1)
         return df
@@ -106,26 +111,59 @@ def out_packages(real_fp):
         symbols = [d['symbol'] for d in symbresp.json()['symbols']]
         return symbols
 
-    def get_data(symbol_list, interval, hour_val):
+    def collect_market_data(market, tik_interval_gd, epoch_arg_split, epoch_arge_gd, engine):
+        db_name = f'{market}_{tik_interval_gd}'
+        try:
+            latest_data = engine.connect().execute(
+                text(f'SELECT open_time FROM {db_name} ORDER BY open_time DESC LIMIT 1')).fetchall()
+            base_date_time_temp = datetime.fromtimestamp(int(latest_data[0][0])).strptime(latest_data[0][0], '%Y-%m')
+        except OperationalError as oe:
+            base_date_time_temp = '2017-10'
+        base_year = int(epoch_arg_split[0])
+        base_month = int(epoch_arg_split[1])
+        base_date_time_temp = str(base_date_time_temp).split('-')
+        base_date_time = datetime(year=base_year, month=base_month,
+                                  day=1).strftime('%Y-%m')
+        dts_split = base_date_time.split('-')
+        dtn_split = datetime.now().strftime('%Y-%m').split('-')
+        new_start_year = (int(dtn_split[0]) - int(dts_split[0])) + 1
+        for a in range(new_start_year):
+            base_url = f'https://data.binance.vision/data/spot/monthly/klines/{market}/' \
+                       f'{tiker_interval}/{market}-{tiker_interval}-{base_date_time}.zip'
+            market_data = requests.get(base_url)
+            if '<Message>The specified key does not exist.</Message>' not in market_data.text:
+                bdts = base_date_time.split("-")
+                if int(bdts[0]) == 12:
+                    base_date_time = f'{int(bdts[0]) + 1}-01'
+                else:
+                    base_date_time = f'{bdts[0]}-{int(bdts[1]) + 1}'
+                with zipfile.ZipFile(io.BytesIO(market_data.content)) as zf:
+                    csv_file = [f for f in zf.filelist if f.filename.endswith('.csv')][0]
+                    csv_content = zf.read(csv_file)
+                    data = convert_to_dataframe(csv_content)
+                    add_data_to_db(data, db_name, engine)
+
+    def get_data(epoch_arge_gd, market_target_list_gd, tik_interval_gd, db_workers):
         """
         Returns all data relating to markets.
         :return:
         """
 
-        tik_gd = 0
-        for market in tqdm(symbol_list, desc="Market data collection progress: "):
-            tik_gd += 1
-            st = int((datetime.now() - timedelta(hours=int(hour_val))).timestamp())
-            print(datetime.fromtimestamp(st).isoformat())
-            params = {
-                "interval": interval,
-                "symbol": market.replace(' ', ''),
-                'startTime': st
-            }
-            response = requests.get(url, params=params)
-            data = response.json()
-            data = convert_to_dataframe(data)
-            add_data_to_db(data, market)
+        engine = create_engine(
+            config_parser(['settings', 'database', 'connection', 'data'],
+                          os.path.join(real_fp, 'settings.yaml')),
+            pool_size=int(db_workers),
+            max_overflow=0,
+            pool_recycle=True
+        )
+        epoch_arg_split = epoch_arge_gd.split('-')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=int(db_workers)) as executor:
+            futures = [executor.submit(collect_market_data, market, tik_interval_gd, epoch_arg_split, epoch_arge_gd,
+                                       engine)
+                       for market in market_target_list_gd]
+            for future in concurrent.futures.as_completed(futures):
+                if future.done():
+                    print(f"Market data collection finished: {future.result()}")
 
     def train_on_dataset(target, name_m, epo, time_steps):
         """
@@ -151,7 +189,6 @@ def out_packages(real_fp):
         # Load the saved model
         prediction_start_time = datetime.now()
         model = load_model(f'models/{model_name_pred}')
-
         # Load the market data
         print(target_dataset)
 
@@ -204,36 +241,33 @@ def out_packages(real_fp):
                     break
                 if option_one == 'collect':
                     base_symbol_list = get_all_symbols_on_binance()
-                    if os.path.isfile(os.path.join(real_fp, 'binance_db.db')) is False:
-                        market_fill = input(f'It appears that this is the 1st time running, would\n'
-                                            f'you like to back-fill the database with historic data?\n'
-                                            f'y/n?: ')
-                        if market_fill == 'y':
-                            epoch_arge = input(f'')
-                    print(f'Select markets to collect by separating each with a ,\n '
-                          f'Input all to scan all available markets.')
-                    markets = input('Markets: ')
-                    tik_interval = input('Interval (1m, 1h, 1d, 1m, 1y): ')
-                    hours_val = input('Hours prior to now to start data cap: ')
-                    if markets == 'all':
-                        get_data(base_symbol_list, tik_interval, hours_val)
+                    epoch_arge = input(f'How many years do we go back, note 2017-10 is 1st data set?: ')
+                    target_markets = input('Would you like to target specific markets,\n'
+                                           'or collect all markets on binance?\n'
+                                           'To back-fill all markets input all\n'
+                                           'To back-fill selected markets, enter each one seperated\n'
+                                           'by a comma , : ')
+                    if target_markets == 'all':
+                        market_target_list = base_symbol_list
                     else:
-                        get_data(markets.replace(' ', '').split(','), tik_interval, hours_val)
+                        market_target_list = target_markets.replace(' ', '').split(',')
+                    tiker_interval = input('What ticker interval are you looking for?\n'
+                                           '1m, 1h, 1d, 1m, 1y : ')
+                    workers = input('How many workers would you like to run: ')
+                    get_data(epoch_arge, market_target_list, tiker_interval, workers)
                     collection = input(f'Continue to collect output with a background task?: y/n')
                     if collection == 'y':
                         if check_os_type()[0] == 'Windows':
-                            task_timer = input('Task frequancy (EG: HOURLY, DAILY): ')
+                            task_timer = input('Task frequency (EG: HOURLY, DAILY): ')
                             create_scheduled_task(f"{sys.executable} {os.path.abspath(__file__)}"
-                                                  f' --collect-cron "{markets}, '
-                                                  f'{tik_interval}, '
-                                                  f'{hours_val}"',
+                                                  f' --collect-cron "{market_target_list}, '
+                                                  f'{tiker_interval}"',
                                                   task_timer)
                         else:
                             cron_timer = input('Cron timer (eg: every hour 0 * * * *): ')
                             create_cron_job(f"{sys.executable} {os.path.abspath(__file__)}"
-                                            f" --collect-cron {markets}, "
-                                            f"{tik_interval}, "
-                                            f"{hours_val}",
+                                            f' --collect-cron "{market_target_list}, '
+                                            f'{tiker_interval}"',
                                             cron_timer)
 
                 if option_one == 'train':
