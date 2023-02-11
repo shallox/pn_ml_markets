@@ -11,6 +11,7 @@ import concurrent.futures
 def out_packages(real_fp):
     from aux_tools import config_parser, logging_config, check_os_type
     import requests
+    import numpy as np
     import pandas as pd
     from sqlalchemy import create_engine, Column, Float, BigInteger, select, text, inspect, Text
     from sqlalchemy.orm import sessionmaker, declarative_base
@@ -87,10 +88,15 @@ def out_packages(real_fp):
         :return:
         """
 
-        df = pd.read_csv(io.StringIO(data.decode('utf-8')),
-                         names=["open_time", "open", "high", "low", "close", "volume", "close_time",
-                                "quote_asset_volume", "number_of_trades", "taker_buy_base_asset_volume",
-                                "taker_buy_quote_asset_volume", "Ignore"])
+        if type(data) is list:
+            df = pd.DataFrame(data, columns=["open_time", "open", "high", "low", "close", "volume", "close_time",
+                                             "quote_asset_volume", "number_of_trades", "taker_buy_base_asset_volume",
+                                             "taker_buy_quote_asset_volume", "Ignore"])
+        else:
+            df = pd.read_csv(io.StringIO(data.decode('utf-8')),
+                             names=["open_time", "open", "high", "low", "close", "volume", "close_time",
+                                    "quote_asset_volume", "number_of_trades", "taker_buy_base_asset_volume",
+                                    "taker_buy_quote_asset_volume", "Ignore"])
         df.pop('Ignore')
         df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
         if len(df) > 0:
@@ -190,32 +196,30 @@ def out_packages(real_fp):
         prediction_start_time = datetime.now()
         model = load_model(f'models/{model_name_pred}')
         # Load the market data
-        print(target_dataset)
-
         params = {
             "interval": "1m",
             "symbol": target_dataset.replace(' ', ''),
             'startTime': int((datetime.now() - timedelta(hours=2)).timestamp())
         }
         response = requests.get(url, params=params)
-        data = response.json()
-        market_data = convert_to_dataframe(data)
-        market_data.fillna(value=0)
-        test_sample = market_data.tail(2)
-        test_sample.drop(test_sample.index[-1])
-        generator = test_sample[["Open", "High", "Low", "Close", "Volume"]].values
-        last_sample = market_data.tail(1)['Close']
-        generate = test_sample.reshape((test_sample.size, int(time_step), 5))
-        predictions = model.predict(generate)
-        predictions = MinMaxScaler().inverse_transform(predictions)
-        predicted_close_price = predictions[0]
-        percent_differance = ((predicted_close_price - last_sample) / last_sample) * 100
-        prediction_run_time = datetime.now() - prediction_start_time
-        print(f'Prediction done in {prediction_run_time.seconds} seconds:\n'
-              f'Actual close price: {last_sample}\n'
-              f'Predicted close price: {predicted_close_price}\n'
-              f'Accuracy percentage: {percent_differance}\n'
-              f'Amount out: {predicted_close_price - last_sample}')
+        market_data = convert_to_dataframe(response.json())
+        last_sample = market_data.tail(1)
+        test_sample = market_data.iloc[:-1].tail(3)
+        test_sample = test_sample[["open", "high", "low", "close", "volume"]].values
+        test_sample = np.reshape(test_sample, (1, 3, 5))
+        predictions = model.predict(test_sample)
+        #predictions = MinMaxScaler().inverse_transform(predictions)
+        predicted_close_price = predictions[0][0]
+        actual_value = last_sample["close"].values[0]
+        percent_differance = ((predicted_close_price - actual_value) / actual_value) * 100
+        print(f'Prediction: {predicted_close_price}\nActual: {actual_value}\nAccuracy shift: '
+              f'{round(percent_differance, 2)}%')
+        #prediction_run_time = datetime.now() - prediction_start_time
+        #print(f'Prediction done in {prediction_run_time.seconds} seconds:\n'
+        #      f'Actual close price: {last_sample["close"]}\n'
+        #      f'Predicted close price: {predicted_close_price}\n'
+        #      #f'Accuracy percentage: {percent_differance}\n'
+        #      f'Amount out: {predicted_close_price - last_sample}')
 
     if cron_data is not None:
         collect_cron = cron_data.rsplit(',', 2)
